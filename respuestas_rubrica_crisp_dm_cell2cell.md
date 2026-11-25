@@ -162,6 +162,12 @@ La unidad de análisis es un cliente identificado por `CustomerID`.
 >
 > **Salida visible:** `Shape final X: (51047, 829)` — `Nulos restantes: 0`
 
+**Profundidad adicional (derivación aritmética de las salidas citadas):**
+
+- De los 71.047 clientes totales del proyecto, el train representa el 71,85% (51.047) y el holdout el 28,15% (20.000).
+- El salto de 56 a 829 columnas lo produce el one-hot encoding de las 22 categóricas; `ServiceArea` es la que más niveles aporta (la tabla de coeficientes, NB-Log `In [17]`, muestra decenas de filas `ServiceArea_*`).
+- Ambos archivos comparten las mismas 58 columnas, lo que permite aplicar el mismo pipeline de imputación/codificación a los dos (NB-Log `impute`/`encode`, `In [8]`–`In [9]`).
+
 ### EDA-2. ¿Hay datos faltantes?
 
 **Respuesta:** sí. En el train hay 3.515 valores faltantes repartidos en 14 variables; en el holdout la columna `Churn` está vacía por diseño (scoring) y también hay faltantes en predictoras. El tratamiento aplicado fue imputación por **mediana** (numéricas) y por **moda** (categóricas).
@@ -217,6 +223,15 @@ La unidad de análisis es un cliente identificado por `CustomerID`.
 
 **Impacto sobre la métrica:** al imputar sobre todo el train antes del split interno (NB-Tree, celda `prep`, `In [3]`) existe un leve riesgo de fuga de información; aun así, los resultados son coherentes entre validación cruzada (0,6365, `In [5]`) y test (0,6395, `In [8]`), lo que sugiere que el efecto es pequeño.
 
+**Profundidad adicional (derivación aritmética de la tabla citada):**
+
+- `AgeHH1`/`AgeHH2`: 909 faltantes cada una = 1,78% de 51.047 — la mayor incidencia, aunque aún baja.
+- `PercChangeRevenues`/`PercChangeMinutes`: 367 cada una = 0,72%.
+- Seis variables de facturación/llamadas (`MonthlyRevenue`, `MonthlyMinutes`, `RoamingCalls`, `OverageMinutes`, `DirectorAssistedCalls`, `TotalRecurringCharge`): 156 cada una = 0,31%.
+- `ServiceArea`: 24 = 0,05%. `Handsets`, `HandsetModels`, `CurrentEquipmentDays`: 1 cada una ≈ 0,002%.
+- En total son 3.515 celdas faltantes ≈ 0,12% de las 2.960.726 celdas del train (51.047 × 58).
+- Lectura para la diapositiva: los faltantes son pocos y concentrados en pocas variables. Imputar con mediana/moda en vez de eliminar filas preserva los 51.047 registros, lo que importa porque la clase minoritaria (`Churn`) ya es escasa (14.711 casos).
+
 ### EDA-3. ¿Existen valores atípicos, duplicados o inconsistencias?
 
 **Respuesta honesta:** con el código actualmente ejecutado **no hay una comprobación explícita** de duplicados (`duplicated()`), atípicos (IQR/boxplot/z-score) ni reglas de inconsistencia. Por eso, la respuesta justificada para la presentación es:
@@ -265,6 +280,12 @@ Los tres puntos citados están respaldados por las celdas referenciadas en EDA-1
 - NB-Tree, celda `grid` (`In [5]`): `'class_weight': [None, 'balanced']` en el `param_grid`; la mejor combinación elegida incluye `'class_weight': 'balanced'` (salida visible de `grid.best_params_`).
 
 **Limitación a declarar oralmente:** los notebooks no incluyen histogramas o gráficos de densidad de las variables numéricas, por lo que no se puede describir la forma de esas distribuciones sin agregar código nuevo.
+
+**Profundidad adicional para la diapositiva (todo derivado de salidas citadas):**
+
+- **El desbalance define la lectura correcta de las métricas.** Un modelo ingenuo que dijera "no abandona" a todos tendría 71,18% de accuracy (salida de `target`, `In [3]`) y detectaría 0% de churners. La regresión logística balanceada tiene accuracy 0,5772 —*menor* que ese baseline— pero recupera ~57% de los churners; el propio notebook lo advierte en su celda markdown `interp_md`: sin `class_weight='balanced'` el recall de churn colapsaba a ~3%.
+- **La partición interna es idéntica para los dos modelos**, lo que hace justa la comparación: ambos reportes (NB-Log `In [11]` y NB-Tree `In [9]`) muestran `support` idéntico (7.268 No Churn / 2.942 Churn sobre 10.210 casos) porque ambos usan `train_test_split(..., test_size=0.2, random_state=42, stratify=y)`.
+- **Cómo queda el holdout (scoring real):** el modelo final predice 10.918 clientes como No Churn y 9.082 como Churn (45,4% del holdout), con probabilidad media de churn 0,4845 (NB-Log `predict_holdout`, `In [15]`). Que ese 45,4% supere al 28,8% histórico es efecto esperado del balanceo: el modelo sobre-alerta a cambio de no perder churners. Para la campaña, esto implica que el umbral de decisión importa tanto como el modelo mismo.
 
 ### EDA-5. ¿Qué relaciones existen entre variables?
 
@@ -323,6 +344,13 @@ Relación 2 — desde la regresión logística:
 
 **Limitaciones:** ninguna de estas dos evidencias prueba causalidad. La importancia del árbol no indica dirección (positiva o negativa), y los coeficientes son condicionales al resto del modelo y a la codificación one-hot (advertencia del propio NB-Log en `interp_md` para los niveles de `ServiceArea_*`).
 
+**Profundidad adicional (derivaciones aritméticas de salidas citadas):**
+
+- **Concentración de la señal:** las 6 primeras variables del árbol acumulan 0,757 de la importancia total (0,3126 + 0,1832 + 0,0977 + 0,0764 + 0,0474 + 0,0401); `CurrentEquipmentDays` sola explica el 31,3%. La señal de churn existe en muchas variables, pero está dominada por la antigüedad del equipo y del servicio.
+- **La señal está regularizada, no sobreajustada:** el árbol ganador usa `max_depth=10` y `min_samples_leaf=200` (salida de `grid`, `In [5]`): ninguna hoja se construye con menos de 200 clientes, lo que evita reglas hiperespecíficas. Existe además la visualización de los primeros 3 niveles (celda `tree_plot`, `In [7]`), utilizable como figura de la diapositiva.
+- **Lectura de negocio de la matriz de confusión** (NB-Tree `In [9]` + `In [10]`): de los 4.576 contactados, 2.833 son falsos positivos → 61,9% del esfuerzo de contacto va a clientes que no iban a abandonar. Con los supuestos del notebook (ingreso por churner retenido $581,52 vs costo por contacto $30), el punto de equilibrio exige recuperar ingresos equivalentes a solo $78,76 por churner contactado ($137.280 / 1.743 VP), un margen de seguridad de ~7,4× sobre el costo supuesto. Esta aritmética explica *por qué* un precision "bajo" (0,38) sigue siendo rentable: el churner recuperado vale mucho más que el contacto desperdiciado.
+- **Trade-off casi igual en ambos modelos:** árbol `precision churn 0,38 / recall 0,59` vs regresión `0,36 / 0,57` (reportes `In [9]` e `In [11]`): la diferencia entre modelos en la clase que le importa al negocio es pequeña; lo que más mueve la aguja es el umbral de decisión, y solo el árbol lo optimiza (Youden 0,5233, `In [8]`).
+
 ### EDA-6. Hallazgo interesante
 
 **Hallazgo:** `CurrentEquipmentDays` (antigüedad del equipo actual) es la variable dominante en **dos modelos independientes**, lo que le da robustez:
@@ -333,6 +361,16 @@ Relación 2 — desde la regresión logística:
 **Por qué es útil para el negocio:** sugiere priorizar ofertas de renovación de equipo para clientes con equipos antiguos, coherente con la campaña de retención del objetivo (sección 1.1).
 
 **Postura crítica a declarar oralmente:** es una relación **predictiva**, no una prueba de causa. Antes de convertirla en política de negocio conviene validarla con un piloto de contacto o un análisis segmentado por antigüedad del servicio.
+
+**Robustez del hallazgo:** dos algoritmos con inductivas distintas (cortes por umbral vs. frontera lineal) coinciden en colocar `CurrentEquipmentDays` en primer lugar; ambos usan la misma base imputada y codificada a 829 columnas (NB-Tree `prep`, `In [3]`; NB-Log `encode`, `In [9]`), aunque el árbol se ajusta sobre el 80% interno y la regresión final se reentrena con el 100% (NB-Log `final_train`, `In [14]`). La coincidencia, entonces, no se explica por datos diferentes.
+
+**Guion sugerido para la diapositiva 2 (~40 segundos, todo con respaldo en celdas citadas):**
+
+1. "Tenemos 71.047 clientes y el 28,8% abandona" (NB-Log `target`, `In [3]`).
+2. "Solo faltan 3.515 celdas (0,12%); imputamos y verificamos cero" (NB-Log `In [5]` y `In [9]`).
+3. "Aún no comprobamos atípicos ni duplicados: es nuestra limitación declarada" (sección EDA-3).
+4. "Dos modelos independientes coinciden: la antigüedad del equipo es la señal #1" (NB-Tree `In [6]`; NB-Log `In [17]`).
+5. Cierre con el gráfico de barras de `Churn` y, si entra, el árbol de 3 niveles (`In [7]`) como imagen.
 
 ---
 
